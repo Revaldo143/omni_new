@@ -1,0 +1,36 @@
+name: jarvis
+
+services:
+  # Web UI: http://<cloud-host>:8501 — keep it localhost-bound and use an SSH tunnel
+  # (see README), do NOT publish it to the internet unauthenticated.
+  ui:
+    build: .
+    image: jarvis:latest
+    container_name: jarvis-ui
+    init: true
+    restart: unless-stopped
+    environment:
+      - OMNI_BROWSER_HEADLESS=1
+    ports:
+      - "127.0.0.1:8501:8501"
+    volumes:
+      - jarvis_state:/state
+      - ./.env:/state/.env:ro
+
+  # Telegram front door (long-polling). The Phase-4 scheduler lives here too:
+  # timed reminders + the 08:00 IST morning brief fire only while this runs.
+  bot:
+    build: .
+    image: jarvis:latest
+    container_name: jarvis-bot
+    init: true
+    restart: unless-stopped
+    environment:
+      - OMNI_BROWSER_HEADLESS=1
+    command: ["python", "telegram_bot.py"]
+    volumes:
+      - jarvis_state:/state
+      - ./.env:/state/.env:ro
+
+volumes:
+  jarvis_state:

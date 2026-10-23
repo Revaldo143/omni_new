@@ -1,0 +1,7 @@
+.env
+*.db
+*.db-journal
+__pycache__/
+browser_profile/
+browser_shots/
+drafts/
