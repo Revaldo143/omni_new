@@ -393,5 +393,139 @@ def find_jobs(keywords: str, location: str = "remote") -> str:
     return "\n".join(out)[:6000]
 
 
+# ---------------- self-learning loop (Jarvis 2.0) ----------------
+# Part 2: the agent can propose new skills. A proposal needs sir's explicit
+# Telegram approval (the code is shown in the approval prompt). Approved
+# skills land in skills/ and become real MCP tools on the very next turn,
+# because the MCP server process restarts for every chat turn.
+# Part 1 (correction memory) lives in learnings.py.
+
+import concurrent.futures
+import importlib.util
+import json as _json
+
+import learnings
+
+SKILLS_DIR = Path(__file__).parent / "skills"
+SKILL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,40}$")
+
+
+def _register_skill(meta: dict, run_fn) -> None:
+    """Turn a SPEC + run() into a real MCP tool with a typed signature."""
+    props = (meta.get("parameters") or {}).get("properties", {}) or {}
+    required = set((meta.get("parameters") or {}).get("required", []) or [])
+    sig_parts = []
+    for pname in props:
+        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", pname):
+            raise ValueError(f"bad parameter name: {pname}")
+        sig_parts.append(f"{pname}: str" if pname in required
+                         else f"{pname}: str = ''")
+    fname = re.sub(r"\W", "_", meta["name"])
+    fwd = ", ".join(f"{p}={p}" for p in props)
+    code = (
+        f"def {fname}({', '.join(sig_parts)}):\n"
+        f'    """{meta["description"]}"""\n'
+        f"    return _SKILL_RUN({fwd})"
+    )
+    g = {"_SKILL_RUN": lambda **kw: str(run_fn(**kw))}
+    ns: dict = {}
+    exec(code, g, ns)
+    mcp.tool(name=meta["name"], description=meta["description"])(ns[fname])
+
+
+def _load_skills() -> None:
+    if not SKILLS_DIR.is_dir():
+        return
+    for f in sorted(SKILLS_DIR.glob("*.py")):
+        if f.name.startswith("_"):
+            continue
+        try:
+            spec = importlib.util.spec_from_file_location(
+                f"jarvis_skill_{f.stem}", f)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            _register_skill(mod.SPEC, mod.run)
+        except Exception as e:
+            print(f"[skills] {f.stem} failed to load: {e}")
+
+
+def _validate_skill_code(name: str, code: str):
+    """Compile + exec the proposed code, return (SPEC, run_fn) or raise."""
+    if not SKILL_NAME_RE.match(name):
+        raise ValueError(
+            "name must match ^[a-z][a-z0-9_]{2,40}$ (lowercase, 3-40 chars)")
+    compiled = compile(code, f"<skill:{name}>", "exec")
+    ns: dict = {}
+    exec(compiled, {"__builtins__": __builtins__}, ns)
+    spec_meta, run_fn = ns.get("SPEC"), ns.get("run")
+    if not isinstance(spec_meta, dict):
+        raise ValueError("code must define SPEC = {...} dict")
+    if spec_meta.get("name") != name:
+        raise ValueError("SPEC['name'] must equal the proposed name")
+    if not spec_meta.get("description"):
+        raise ValueError("SPEC needs a description")
+    params = spec_meta.get("parameters") or {}
+    if not isinstance(params.get("properties"), dict):
+        raise ValueError("SPEC['parameters']['properties'] must be a dict")
+    if not callable(run_fn):
+        raise ValueError("code must define run(**kwargs)")
+    return spec_meta, run_fn
+
+
+@mcp.tool()
+def propose_skill(name: str, code: str, test_args_json: str = "{}") -> str:
+    """Propose a NEW skill (Python tool) you don't have yet. NEEDS SIR'S
+    APPROVAL — he sees the code on Telegram and taps Yes/No.
+
+    code must define:
+      SPEC = {"name": "<same as name>", "description": "...",
+              "parameters": {"type": "object",
+                             "properties": {"arg": {"type": "string"}},
+                             "required": ["arg"]}}
+      def run(**kwargs) -> str: ...
+
+    All args arrive as strings. Keep it dependency-free (stdlib only) and
+    fast. test_args_json: sample args for the smoke test, e.g.
+    '{"arg": "hello"}'. The skill activates only if the smoke test passes.
+    """
+    try:
+        target = SKILLS_DIR / f"{name}.py"
+        if target.exists():
+            return f"Skill '{name}' already exists — propose an update instead."
+        spec_meta, run_fn = _validate_skill_code(name, code)
+        try:
+            test_args = _json.loads(test_args_json or "{}")
+        except Exception:
+            return "test_args_json is not valid JSON."
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(run_fn, **test_args)
+            try:
+                out = fut.result(timeout=30)
+            except concurrent.futures.TimeoutError:
+                return ("Smoke test timed out after 30s — skill NOT "
+                        "activated. Make it faster or bounded.")
+        result_preview = str(out)[:300]
+        SKILLS_DIR.mkdir(exist_ok=True)
+        target.write_text(code, encoding="utf-8")
+        return (f"✅ Skill '{name}' approved and ACTIVATED. Smoke test output: "
+                f"{result_preview}\nIt is a real tool from the next message.")
+    except Exception as e:
+        return f"Skill NOT activated: {e}"
+
+
+@mcp.tool()
+def learn_correction(rule: str) -> str:
+    """Save something sir just corrected — a preference, a fact about how
+    he wants things done, a mistake not to repeat. One clear sentence.
+    It persists in learnings.md and is injected into every future reply."""
+    try:
+        return learnings.add_learning(rule)
+    except Exception as e:
+        return f"Could not save: {e}"
+
+
+_load_skills()
+
+
 if __name__ == "__main__":
     mcp.run()  # stdio

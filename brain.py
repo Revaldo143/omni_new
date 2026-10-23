@@ -27,6 +27,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 import graph_memory  # noqa: F401  (ensures graph tables exist early)
+import learnings
 import memory
 import personality
 import providers
@@ -122,6 +123,8 @@ def needs_approval(tool_name: str, args: dict) -> bool:
     """Tools that change the outside world need an explicit yes."""
     if tool_name == "browser_type" and args.get("submit"):
         return True  # submitting a form can post/buy/register
+    if tool_name == "propose_skill":
+        return True  # new code running as a tool — sir reviews it first
     return False
 
 
@@ -136,7 +139,12 @@ def _system_prompt() -> str:
     facts = memory.list_facts()
     summary = memory.latest_summary() or ""
     base = personality.build_system_prompt("Jarvis", facts, summary)
-    return base + (
+    learned = learnings.learnings_text()
+    learned_block = (
+        f"\n\nThings sir taught you (never forget these):\n{learned}"
+        if learned else ""
+    )
+    return base + learned_block + (
         "\n\nJarvis 2.0 rules — follow strictly:\n"
         "1. PRICES: always use get_price for gold/forex/crypto. One call. "
         "Never open the browser for a price.\n"
@@ -146,6 +154,11 @@ def _system_prompt() -> str:
         "tool calls in one block. Short answers.\n"
         "4. If a tool needs approval and it is denied, say so plainly and "
         "offer an alternative.\n"
+        "5. LEARNING: if sir corrects you ('illa', 'apdi illa', 'thappu'), "
+        "call learn_correction with one clear sentence capturing the rule.\n"
+        "6. SKILLS: if a task needs a tool you don't have, write it with "
+        "propose_skill (SPEC + run, stdlib only, with a smoke test). "
+        "Sir approves the code on Telegram before it activates.\n"
     )
 
 
@@ -327,7 +340,7 @@ def chat(user_text: str, approver=None) -> str:
         quota_hit = _is_quota_error(e)
         _log_error(e)
         if quota_hit:
-            reply = quota.quota_message()
+            reply = quota.provider_quota_message()
             LAST_ROUTE.update(model=model, note="quota exhausted",
                               provider=PROVIDER)
         else:
@@ -347,7 +360,7 @@ def chat(user_text: str, approver=None) -> str:
             except Exception as e2:
                 _log_error(e2)
                 if _is_quota_error(e2):
-                    return quota.quota_message()
+                    return quota.provider_quota_message()
                 raise
 
     try:
@@ -357,10 +370,10 @@ def chat(user_text: str, approver=None) -> str:
         _maybe_compact()
     except Exception as e:
         if _is_quota_error(e):
-            return quota.quota_message()
+            return quota.provider_quota_message()
         raise
 
     if reply:
         return reply
-    return quota.quota_message() if quota_hit else (
+    return quota.provider_quota_message() if quota_hit else (
         "⚠️ Sir, answer empty ah vanthuruchu — marupadiyum try pannunga.")

@@ -26,6 +26,16 @@ SQLite memory + graph memory, Telegram front door (owner-locked), 08:00 IST
 morning brief + reminders, voice notes (hear + speak), Playwright browser,
 code sandbox, Streamlit UI.
 
+## Self-learning loop (2.1)
+
+- **Correction memory** — when sir corrects the bot, `learn_correction`
+  saves the rule to `learnings.md`; it's injected into every future reply.
+- **Skill proposals** — when a task needs a tool that doesn't exist, the
+  brain writes one with `propose_skill` (SPEC + `run`, stdlib only, with a
+  smoke test). The code is shown on Telegram and needs sir's Yes before it
+  activates. Approved skills become real MCP tools from the next message.
+- `learnings.md`, `skills/*.py` are personal runtime state (gitignored).
+
 ## Run locally
 
 ```bash

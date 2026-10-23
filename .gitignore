@@ -5,3 +5,7 @@ __pycache__/
 browser_profile/
 browser_shots/
 drafts/
+learnings.md
+skills/*.py
+!skills/README.md
+skills_pending/

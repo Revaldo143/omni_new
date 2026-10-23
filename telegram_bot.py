@@ -78,11 +78,18 @@ def make_approver(token: str, chat_id: int):
         with _approval_lock:
             _approvals[key] = {"event": ev, "ok": False}
         argstr = ", ".join(f"{k}={str(v)[:80]}" for k, v in args.items())
+        if tool_name == "propose_skill":
+            code = str(args.get("code", ""))[:2500]
+            text = (f"🔧 *New skill proposal*\n`{args.get('name', '')}`\n\n"
+                    f"```python\n{code}\n```\n\n"
+                    f"Activate this skill? (smoke test runs on Yes)")
+        else:
+            text = (f"⚠️ *Approval needed*\n`{tool_name}({argstr})`\n\n"
+                    f"This action can change the outside world. Allow?")
         try:
             api(token, "sendMessage", {
                 "chat_id": chat_id,
-                "text": (f"⚠️ *Approval needed*\n`{tool_name}({argstr})`\n\n"
-                         f"This action can change the outside world. Allow?"),
+                "text": text,
                 "parse_mode": "Markdown",
                 "reply_markup": {"inline_keyboard": [[
                     {"text": "✅ Yes", "callback_data": f"{key}:yes"},

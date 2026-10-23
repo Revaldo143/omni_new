@@ -92,3 +92,17 @@ def quota_message() -> str:
         "vera model/provider ku maathunga (LLM_PROVIDER=openai, illa "
         "OMNI_FLASH_MODEL vera model)."
     )
+
+
+def provider_quota_message() -> str:
+    """Google (or the provider) said 429 — their free-tier bucket is empty,
+    even though our local budget still has room. Keep the two distinct."""
+    return (
+        "⚠️ Sir, Google free quota mudinjiduchu — intha model oda daily "
+        "limit theerndhuduchu (free tier romba chinna limit). Quota "
+        "~naalaikku madhiyam 12:30 ku reset aagum. Udane continue panna, "
+        ".env la OMNI_FLASH_MODEL ah vera model ku maathunga "
+        "(e.g. gemini-3-flash-preview — adhodha quota separate bucket), "
+        "illa LLM_PROVIDER=openai (key la credit iruntha). "
+        "Enoda local budget la innum calls iruku — thaduppu Google side."
+    )
